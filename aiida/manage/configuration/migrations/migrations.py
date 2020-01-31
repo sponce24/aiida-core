@@ -8,9 +8,6 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Define the current configuration version and migrations."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 __all__ = ('CURRENT_CONFIG_VERSION', 'OLDEST_COMPATIBLE_CONFIG_VERSION')
 
@@ -22,7 +19,7 @@ CURRENT_CONFIG_VERSION = 3
 OLDEST_COMPATIBLE_CONFIG_VERSION = 3
 
 
-class ConfigMigration(object):
+class ConfigMigration:
     """Defines a config migration."""
 
     def __init__(self, migrate_function, version, version_oldest_compatible):
@@ -63,15 +60,17 @@ def _1_add_profile_uuid(config):
 def _2_simplify_default_profiles(config):
     """
     The concept of a different 'process' for a profile has been removed and as such the
-    default profiles key in the configuration no longer needs a value per process ('verdi', 'daemon')
-    We remove the dictionary 'default_profiles' and replace it with a simple value 'default_profile'
+    default profiles key in the configuration no longer needs a value per process ('verdi', 'daemon').
+    We remove the dictionary 'default_profiles' and replace it with a simple value 'default_profile'.
     """
     from aiida.manage.configuration import PROFILE
 
     default_profiles = config.pop('default_profiles', None)
 
-    if default_profiles:
+    if default_profiles and 'daemon' in default_profiles:
         config['default_profile'] = default_profiles['daemon']
+    elif default_profiles and 'verdi' in default_profiles:
+        config['default_profile'] = default_profiles['verdi']
     elif PROFILE is not None:
         config['default_profile'] = PROFILE.name
 

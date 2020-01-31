@@ -8,9 +8,6 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Utility functions to operate on datetime objects."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 from datetime import datetime
 import dateutil
@@ -22,7 +19,14 @@ def get_current_timezone():
     :return: current timezone
     """
     from tzlocal import get_localzone
-    return get_localzone()
+    local = get_localzone()
+
+    if local.zone == 'local':
+        raise ValueError(
+            "Unable to detect name of local time zone. Please set 'TZ' environment variable, e.g."
+            " to 'Europe/Zurich'"
+        )
+    return local
 
 
 def now():
@@ -70,8 +74,10 @@ def make_aware(value, timezone=None, is_dst=None):
 
     if is_aware(value):
         raise ValueError('make_aware expects a naive datetime, got %s' % value)
+
     # This may be wrong around DST changes!
-    return value.replace(tzinfo=timezone)
+    # See http://pytz.sourceforge.net/#localized-times-and-date-arithmetic
+    return timezone.localize(value)
 
 
 def localtime(value, timezone=None):
@@ -118,6 +124,8 @@ def datetime_to_isoformat(value):
 
     :param value: a datetime object
     """
+    if value is None:
+        return None
     return value.isoformat()
 
 
@@ -126,4 +134,6 @@ def isoformat_to_datetime(value):
 
     :param value: a ISO format string representation of a datetime object
     """
+    if value is None:
+        return None
     return dateutil.parser.parse(value)

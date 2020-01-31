@@ -9,10 +9,9 @@
 ###########################################################################
 # pylint: disable=undefined-variable,wildcard-import,global-statement,redefined-outer-name,cyclic-import
 """Modules related to the configuration of an AiiDA instance."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
+import warnings
 
+from aiida.common.warnings import AiidaDeprecationWarning
 from .config import *
 from .options import *
 from .profile import *
@@ -20,9 +19,6 @@ from .profile import *
 CONFIG = None
 PROFILE = None
 BACKEND_UUID = None  # This will be set to the UUID of the profile as soon as its corresponding backend is loaded
-
-# This is used (and should be set to true) for the correct compilation of the documentation on readthedocs
-IN_RT_DOC_MODE = False
 
 __all__ = (
     config.__all__ + options.__all__ + profile.__all__ +
@@ -71,7 +67,10 @@ def load_profile(profile=None):
 
 
 def load_config(create=False):
-    """Instantiate the Config object representing the configuration file of the current AiiDA instance.
+    """Instantiate Config object representing an AiiDA configuration file.
+
+    Warning: Contrary to :func:`~aiida.manage.configuration.get_config`, this function is uncached and will always
+    create a new Config object. You may want to call :func:`~aiida.manage.configuration.get_config` instead.
 
     :param create: if True, will create the configuration file if it does not already exist
     :type create: bool
@@ -80,54 +79,20 @@ def load_config(create=False):
     :rtype: :class:`~aiida.manage.configuration.config.Config`
     :raises aiida.common.MissingConfigurationError: if the configuration file could not be found and create=False
     """
-    import io
     import os
     from aiida.common import exceptions
-    from aiida.common import json
     from .config import Config
-    from .migrations import check_and_migrate_config
     from .settings import AIIDA_CONFIG_FOLDER, DEFAULT_CONFIG_FILE_NAME
-
-    if IN_RT_DOC_MODE:
-        # The following is a dummy config.json configuration that it is used for the
-        # proper compilation of the documentation on readthedocs.
-        from aiida.manage.external.postgres import DEFAULT_DBINFO
-        return Config(
-            '/dev/null', {
-                'default_profile': 'default',
-                'profiles': {
-                    'default': {
-                        'AIIDADB_ENGINE': 'postgresql_psycopg2',
-                        'AIIDADB_BACKEND': 'django',
-                        'AIIDADB_HOST': DEFAULT_DBINFO['host'],
-                        'AIIDADB_PORT': DEFAULT_DBINFO['port'],
-                        'AIIDADB_NAME': 'aiidadb',
-                        'AIIDADB_PASS': '123',
-                        'default_user_email': 'aiida@epfl.ch',
-                        'TIMEZONE': 'Europe/Zurich',
-                        'AIIDADB_REPOSITORY_URI': 'file:///tmp/repository',
-                        'AIIDADB_USER': 'aiida'
-                    }
-                }
-            }
-        )
 
     filepath = os.path.join(AIIDA_CONFIG_FOLDER, DEFAULT_CONFIG_FILE_NAME)
 
-    if not os.path.isfile(filepath):
-        if not create:
-            raise exceptions.MissingConfigurationError('configuration file {} does not exist'.format(filepath))
-        else:
-            config_dictionary = {}
-    else:
-        try:
-            with io.open(filepath, 'r', encoding='utf8') as handle:
-                config_dictionary = json.load(handle)
-        except ValueError:
-            raise exceptions.ConfigurationError('configuration file {} contains invalid JSON'.format(filepath))
+    if not os.path.isfile(filepath) and not create:
+        raise exceptions.MissingConfigurationError('configuration file {} does not exist'.format(filepath))
 
-    config = Config(filepath, check_and_migrate_config(config_dictionary))
-    config.store()
+    try:
+        config = Config.from_file(filepath)
+    except ValueError:
+        raise exceptions.ConfigurationError('configuration file {} contains invalid JSON'.format(filepath))
 
     return config
 
@@ -167,10 +132,13 @@ def reset_config():
 def get_config(create=False):
     """Return the current configuration.
 
-    If the configuration has not been loaded yet, it will be loaded first and then returned.
+    If the configuration has not been loaded yet
+     * the configuration is loaded using ``load_config``
+     * the global `CONFIG` variable is set
+     * the configuration object is returned
 
-    Note: this function should only be called by parts of the code that expect that a complete AiiDA instance exists,
-    i.e. an AiiDA folder exists and contains a valid configuration file.
+    Note: This function will except if no configuration file can be found. Only call this function, if you need
+    information from the configuration file.
 
     :param create: if True, will create the configuration file if it does not already exist
     :type create: bool
@@ -183,6 +151,15 @@ def get_config(create=False):
 
     if not CONFIG:
         CONFIG = load_config(create=create)
+
+        if CONFIG.get_option('warnings.showdeprecations'):
+            # If the user does not want to get AiiDA deprecation warnings, we disable them - this can be achieved with::
+            #   verdi config warnings.showdeprecations False
+            # Note that the AiidaDeprecationWarning does NOT inherit from DeprecationWarning
+            warnings.simplefilter('default', AiidaDeprecationWarning)  # pylint: disable=no-member
+            # This should default to 'once', i.e. once per different message
+        else:
+            warnings.simplefilter('ignore', AiidaDeprecationWarning)  # pylint: disable=no-member
 
     return CONFIG
 
@@ -220,3 +197,38 @@ def get_config_option(option_name):
         value = value_profile if value_profile else config.get_option(option_name)
 
     return value
+
+
+def load_documentation_profile():
+    """Load a dummy profile just for the purposes of being able to build the documentation.
+
+    The building of the documentation will require importing the `aiida` package and some code will try to access the
+    loaded configuration and profile, which if not done will except. On top of that, Django will raise an exception if
+    the database models are loaded before its settings are loaded. This also is taken care of by loading a Django
+    profile and loading the corresponding backend. Calling this function will perform all these requirements allowing
+    the documentation to be built without having to install and configure AiiDA nor having an actual database present.
+    """
+    import tempfile
+    from aiida.manage.manager import get_manager
+    from .config import Config
+    from .profile import Profile
+
+    global PROFILE
+    global CONFIG
+
+    with tempfile.NamedTemporaryFile() as handle:
+        profile_name = 'readthedocs'
+        profile = {
+            'AIIDADB_ENGINE': 'postgresql_psycopg2',
+            'AIIDADB_BACKEND': 'django',
+            'AIIDADB_PORT': 5432,
+            'AIIDADB_HOST': 'localhost',
+            'AIIDADB_NAME': 'aiidadb',
+            'AIIDADB_PASS': 'aiidadb',
+            'AIIDADB_USER': 'aiida',
+            'AIIDADB_REPOSITORY_URI': 'file:///dev/null',
+        }
+        config = {'default_profile': profile_name, 'profiles': {profile_name: profile}}
+        PROFILE = Profile(profile_name, profile, from_config=True)
+        CONFIG = Config(handle.name, config)
+        get_manager()._load_backend(schema_check=False)  # pylint: disable=protected-access

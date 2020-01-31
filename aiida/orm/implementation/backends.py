@@ -8,26 +8,20 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Generic backend related objects"""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
-
 import abc
 import typing
-import six
 
 __all__ = ('Backend', 'BackendEntity', 'BackendCollection', 'EntityType')
 
 EntityType = typing.TypeVar('EntityType')  # pylint: disable=invalid-name
 
 
-@six.add_metaclass(abc.ABCMeta)
-class Backend(object):
+class Backend(abc.ABC):
     """The public interface that defines a backend factory that creates backend specific concrete objects."""
 
     @abc.abstractmethod
     def migrate(self):
-        """Migrate the database to the latest schema version."""
+        """Migrate the database to the latest schema generation or version."""
 
     @abc.abstractproperty
     def authinfos(self):
@@ -121,8 +115,7 @@ class Backend(object):
         """
 
 
-@six.add_metaclass(abc.ABCMeta)
-class BackendEntity(object):
+class BackendEntity(abc.ABC):
     """An first-class entity in the backend"""
 
     def __init__(self, backend):

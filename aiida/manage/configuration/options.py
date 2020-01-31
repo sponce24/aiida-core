@@ -8,12 +8,8 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Definition of known configuration options and methods to parse and get option values."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 import collections
-import six
 
 __all__ = ('get_option', 'get_option_names', 'parse_option')
 
@@ -61,7 +57,7 @@ def parse_option(option_name, option_value):
     value = False
 
     if option.valid_type == 'bool':
-        if isinstance(option_value, six.string_types):
+        if isinstance(option_value, str):
             if option_value.strip().lower() in ['0', 'false', 'f']:
                 value = False
             elif option_value.strip().lower() in ['1', 'true', 't']:
@@ -71,7 +67,7 @@ def parse_option(option_name, option_value):
         else:
             value = bool(option_value)
     elif option.valid_type == 'string':
-        value = six.text_type(option_value)
+        value = str(option_value)
     elif option.valid_type == 'int':
         value = int(option_value)
     elif option.valid_type == 'list_of_str':

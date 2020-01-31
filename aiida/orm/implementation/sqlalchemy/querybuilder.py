@@ -8,12 +8,8 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Sqla query builder implementation"""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 import uuid
-import six
 
 # pylint: disable=no-name-in-module, import-error
 from sqlalchemy_utils.types.choice import Choice
@@ -237,18 +233,21 @@ class SqlaQueryBuilder(BackendQueryBuilder):
             if not isinstance(value, int):
                 raise InputValidationError('You have to give an integer when comparing to a length')
         elif operator in ('like', 'ilike'):
-            if not isinstance(value, six.string_types):
+            if not isinstance(value, str):
                 raise InputValidationError(
                     'Value for operator {} has to be a string (you gave {})'
                     ''.format(operator, value)
                 )
 
         elif operator == 'in':
-            value_type_set = set(type(i) for i in value)
+            try:
+                value_type_set = set(type(i) for i in value)
+            except TypeError:
+                raise TypeError('Value for operator `in` could not be iterated')
+            if not value_type_set:
+                raise InputValidationError('Value for operator `in` is an empty list')
             if len(value_type_set) > 1:
-                raise InputValidationError('{}  contains more than one type'.format(value))
-            elif not value_type_set:
-                raise InputValidationError('{}  contains is an empty list'.format(value))
+                raise InputValidationError('Value for operator `in` contains more than one type: {}'.format(value))
         elif operator in ('and', 'or'):
             expressions_for_this_path = []
             for filter_operation_dict in value:
@@ -303,7 +302,7 @@ class SqlaQueryBuilder(BackendQueryBuilder):
             elif isinstance(value, dict):
                 type_filter = jsonb_typeof(path_in_json) == 'array'
                 casted_entity = path_in_json.astext.cast(JSONB)  # BOOLEANS?
-            elif isinstance(value, six.string_types):
+            elif isinstance(value, str):
                 type_filter = jsonb_typeof(path_in_json) == 'string'
                 casted_entity = path_in_json.astext
             elif value is None:
@@ -381,7 +380,7 @@ class SqlaQueryBuilder(BackendQueryBuilder):
         """
         entity = self.get_column(column_name, alias)[attrpath]
         if cast is None:
-            entity = entity
+            pass
         elif cast == 'f':
             entity = entity.astext.cast(Float)
         elif cast == 'i':
@@ -412,7 +411,7 @@ class SqlaQueryBuilder(BackendQueryBuilder):
         if isinstance(res, Choice):
             returnval = res.value
         elif isinstance(res, uuid.UUID):
-            returnval = six.text_type(res)
+            returnval = str(res)
         else:
             try:
                 returnval = self._backend.get_backend_entity(res)

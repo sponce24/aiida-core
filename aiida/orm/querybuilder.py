@@ -18,16 +18,11 @@ an interface classes which enforces the implementation of its defined methods.
 An instance of one of the implementation classes becomes a member of the :func:`QueryBuilder` instance
 when instantiated by the user.
 """
-
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
 # Checking for correct input with the inspect module
 from inspect import isclass as inspect_isclass
 import copy
 import logging
-import six
-from six.moves import range, zip
+import warnings
 from sqlalchemy import and_, or_, not_, func as sa_func, select, join
 from sqlalchemy.types import Integer
 from sqlalchemy.orm import aliased
@@ -39,6 +34,7 @@ from aiida.common.exceptions import InputValidationError
 from aiida.common.links import LinkType
 from aiida.manage.manager import get_manager
 from aiida.common.exceptions import ConfigurationError
+from aiida.common.warnings import AiidaDeprecationWarning
 
 from . import authinfos
 from . import comments
@@ -267,7 +263,7 @@ def get_process_type_filter(classifiers, subclassing):
     return filter
 
 
-class QueryBuilder(object):
+class QueryBuilder:
     """
     The class to query the AiiDA database.
 
@@ -383,7 +379,7 @@ class QueryBuilder(object):
             if isinstance(path_spec, dict):
                 self.append(**path_spec)
             # ~ except TypeError as e:
-            elif isinstance(path_spec, six.string_types):
+            elif isinstance(path_spec, str):
                 # Maybe it is just a string,
                 # I assume user means the type
                 self.append(entity_type=path_spec)
@@ -629,10 +625,10 @@ class QueryBuilder(object):
         elif entity_type:
             if isinstance(entity_type, (tuple, list, set)):
                 for t in entity_type:
-                    if not isinstance(t, six.string_types):
+                    if not isinstance(t, str):
                         raise InputValidationError('{} was passed as entity_type, but is not a string'.format(t))
             else:
-                if not isinstance(entity_type, six.string_types):
+                if not isinstance(entity_type, str):
                     raise InputValidationError('{} was passed as entity_type, but is not a string'.format(entity_type))
 
         ormclass, classifiers = self._get_ormclass(cls, entity_type)
@@ -920,7 +916,7 @@ class QueryBuilder(object):
                 tag = self._get_tag_from_specification(tagspec)
                 _order_spec[tag] = []
                 for item_to_order_by in items_to_order_by:
-                    if isinstance(item_to_order_by, six.string_types):
+                    if isinstance(item_to_order_by, str):
                         item_to_order_by = {item_to_order_by: {}}
                     elif isinstance(item_to_order_by, dict):
                         pass
@@ -932,7 +928,7 @@ class QueryBuilder(object):
                         # if somebody specifies eg {'node':{'id':'asc'}}
                         # tranform to {'node':{'id':{'order':'asc'}}}
 
-                        if isinstance(orderspec, six.string_types):
+                        if isinstance(orderspec, str):
                             this_order_spec = {'order': orderspec}
                         elif isinstance(orderspec, dict):
                             this_order_spec = orderspec
@@ -985,14 +981,17 @@ class QueryBuilder(object):
         if not isinstance(filters, dict):
             raise InputValidationError('Filters have to be passed as dictionaries')
 
+        processed_filters = {}
+
         for key, value in filters.items():
             if isinstance(value, entities.Entity):
                 # Convert to be the id of the joined entity because we can't query
                 # for the object instance directly
-                filters.pop(key)
-                filters['{}_id'.format(key)] = value.id
+                processed_filters['{}_id'.format(key)] = value.id
+            else:
+                processed_filters[key] = value
 
-        return filters
+        return processed_filters
 
     def _add_type_filter(self, tagspec, classifiers, subclassing):
         """
@@ -1084,7 +1083,7 @@ class QueryBuilder(object):
 
             QueryBuilder().append(StructureData,tag='s', project='**').limit(1).dict()[0]['s'].keys()
 
-            # >>> u'user_id, description, ctime, label, extras, mtime, id, attributes, dbcomputer_id, type, uuid'
+            # >>> 'user_id, description, ctime, label, extras, mtime, id, attributes, dbcomputer_id, type, uuid'
 
         Be aware that the result of ``**`` depends on the backend implementation.
 
@@ -1099,7 +1098,7 @@ class QueryBuilder(object):
         for projection in projection_spec:
             if isinstance(projection, dict):
                 _thisprojection = projection
-            elif isinstance(projection, six.string_types):
+            elif isinstance(projection, str):
                 _thisprojection = {projection: {}}
             else:
                 raise InputValidationError('Cannot deal with projection specification {}\n'.format(projection))
@@ -1113,7 +1112,7 @@ class QueryBuilder(object):
                 for key, val in spec.items():
                     if key not in self._VALID_PROJECTION_KEYS:
                         raise InputValidationError('{} is not a valid key {}'.format(key, self._VALID_PROJECTION_KEYS))
-                    if not isinstance(val, six.string_types):
+                    if not isinstance(val, str):
                         raise InputValidationError('{} has to be a string'.format(val))
             _projections.append(_thisprojection)
         if self._debug:
@@ -1200,7 +1199,7 @@ class QueryBuilder(object):
             In that case, I simply check that it's not a duplicate.
             If it is a class, I check if it's in the _cls_to_tag_map!
         """
-        if isinstance(specification, six.string_types):
+        if isinstance(specification, str):
             if specification in self.tag_to_alias_map.keys():
                 tag = specification
             else:
@@ -1710,32 +1709,6 @@ class QueryBuilder(object):
                                                    self.tag_to_alias_map.keys()))
         return returnval
 
-    def _get_json_compatible(self, inp):
-        """
-
-        :param inp:
-            The input value that will be converted.
-            Recurses into each value if **inp** is an iterable.
-        """
-        from aiida import orm
-
-        if isinstance(inp, dict):
-            for key, val in inp.items():
-                inp[self._get_json_compatible(key)] = self._get_json_compatible(inp.pop(key))
-        elif isinstance(inp, (list, tuple)):
-            inp = [self._get_json_compatible(val) for val in inp]
-        elif inspect_isclass(inp):
-            if issubclass(inp, self.AiidaNode):
-                return '.'.join(inp._plugin_type_string.strip('.').split('.')[:-1])
-            elif issubclass(inp, orm.Group):
-                return 'group'
-            else:
-                raise InputValidationError
-        else:
-            raise ValueError('unsupported type {} for input value'.format(type(inp)))
-
-        return inp
-
     def get_json_compatible_queryhelp(self):
         """
         Makes the queryhelp a json-compatible dictionary.
@@ -1756,6 +1729,27 @@ class QueryBuilder(object):
             qb.all()==qb2.all()
 
         :returns: the json-compatible queryhelp
+
+        .. deprecated:: 1.0.0
+            Will be removed in `v2.0.0`, use the :meth:`aiida.orm.querybuilder.QueryBuilder.queryhelp` property instead.
+        """
+        warnings.warn('method is deprecated, use the `queryhelp` property instead', AiidaDeprecationWarning)
+        return self.queryhelp
+
+    @property
+    def queryhelp(self):
+        """queryhelp dictionary correspondig to QueryBuilder instance.
+
+        The queryhelp can be used to create a copy of the QueryBuilder instance like so::
+
+            qb = QueryBuilder(limit=3).append(StructureData, project='id').order_by({StructureData:'id'})
+            qb2 = QueryBuilder(**qb.queryhelp)
+
+            # The following is True if no change has been made to the database.
+            # Note that such a comparison can only be True if the order of results is enforced
+            qb.all() == qb2.all()
+
+        :return: a queryhelp dictionary
         """
         return copy.deepcopy({
             'path': self._path,
@@ -1765,6 +1759,10 @@ class QueryBuilder(object):
             'limit': self._limit,
             'offset': self._offset,
         })
+
+    def __deepcopy__(self, memo):
+        """Create deep copy of QueryBuilder instance."""
+        return type(self)(**self.queryhelp)
 
     def _build_order(self, alias, entitytag, entityspec):
         """
@@ -1921,51 +1919,6 @@ class QueryBuilder(object):
 
         return self._query
 
-    def except_if_input_to(self, calc_class):
-        """
-        Makes counterquery based on the own path, only selecting
-        entries that have been input to *calc_class*
-
-        :param calc_class: The calculation class to check against
-
-        :returns: self
-        """
-
-        def build_counterquery(calc_class):
-            if issubclass(calc_class, self.Node):
-                orm_calc_class = calc_class
-                type_spec = None
-            elif issubclass(calc_class, self.AiidaNode):
-                orm_calc_class = self.Node
-                type_spec = calc_class._plugin_type_string
-            else:
-                raise Exception('You have given me {}\n'
-                                'of type {}\n'
-                                "and I don't know what to do with that"
-                                ''.format(calc_class, type(calc_class)))
-
-            input_alias_list = []
-            for node in self._path:
-                tag = node['tag']
-                requested_cols = [key for item in self._projections[tag] for key in item.keys()]
-                if '*' in requested_cols:
-                    input_alias_list.append(aliased(self.tag_to_alias_map[tag]))
-
-            counterquery = self._imp._get_session().query(orm_calc_class)
-            if type_spec:
-                counterquery = counterquery.filter(orm_calc_class.entity_type == type_spec)
-            for alias in input_alias_list:
-                link = aliased(self.Link)
-                counterquery = counterquery.join(link, orm_calc_class.id == link.output_id).join(
-                    alias, alias.id == link.input_id)
-                counterquery = counterquery.add_entity(alias)
-            counterquery._entities.pop(0)
-            return counterquery
-
-        self._query = self.get_query()
-        self._query = self._query.except_(build_counterquery(calc_class))
-        return self
-
     def get_aliases(self):
         """
         :returns: the list of aliases
@@ -2017,7 +1970,7 @@ class QueryBuilder(object):
         # The queryhelp_hash is used to determine
         # whether the query is still valid
 
-        queryhelp_hash = make_hash(self.get_json_compatible_queryhelp())
+        queryhelp_hash = make_hash(self.queryhelp)
         # if self._hash (which is None if this function has not been invoked
         # and is a string (hash) if it has) is the same as the queryhelp
         # I can use the query again:
@@ -2246,11 +2199,11 @@ class QueryBuilder(object):
 
             qb.iterdict()
             >>> {'descendant': {
-                    'entity_type': u'calculation.job.quantumespresso.pw.PwCalculation.',
+                    'entity_type': 'calculation.job.quantumespresso.pw.PwCalculation.',
                     'id': 7716}
                 }
             >>> {'descendant': {
-                    'entity_type': u'data.remote.RemoteData.',
+                    'entity_type': 'data.remote.RemoteData.',
                     'id': 8510}
                 }
 

@@ -19,18 +19,12 @@ Local transport
 ### we should instead keep track internally of the 'current working directory'
 ### in the exact same way as paramiko does already.
 
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
-
 import errno
+import io
 import os
 import shutil
 import subprocess
 import glob
-
-import six
-from six.moves import cStringIO as StringIO
 
 from aiida.transports import cli as transport_cli
 from aiida.transports.transport import Transport, TransportInternalError
@@ -55,21 +49,16 @@ class LocalTransport(Transport):
     # where the remote computer will rate limit the number of connections.
     _DEFAULT_SAFE_OPEN_INTERVAL = 0.0
 
-    def __init__(self, **kwargs):
-        super(LocalTransport, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         # The `_internal_dir` will emulate the concept of working directory, as the real current working directory is
         # not to be changed to prevent bug-prone situations
-        self._is_open = False
         self._internal_dir = None
 
         # Just to avoid errors
         self._machine = kwargs.pop('machine', None)
         if self._machine and self._machine != 'localhost':
             self.logger.debug('machine was passed, but it is not localhost')
-        self._safe_open_interval = kwargs.pop('safe_interval', self._DEFAULT_SAFE_OPEN_INTERVAL)
-
-        if kwargs:
-            raise ValueError('the following keywords are not recognized: {}'.format(kwargs))
 
     def open(self):
         """
@@ -764,7 +753,7 @@ class LocalTransport(Transport):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=self.getcwd(),
-            preexec_fn=os.setsid
+            start_new_session=True
         )
 
         return proc.stdin, proc.stdout, proc.stderr, proc
@@ -782,8 +771,8 @@ class LocalTransport(Transport):
         local_stdin, _, _, local_proc = self._exec_command_internal(command)
 
         if stdin is not None:
-            if isinstance(stdin, six.string_types):
-                filelike_stdin = StringIO(stdin)
+            if isinstance(stdin, str):
+                filelike_stdin = io.StringIO(stdin)
             else:
                 filelike_stdin = stdin
 
@@ -875,10 +864,6 @@ class LocalTransport(Transport):
         Check if path exists
         """
         return os.path.exists(os.path.join(self.curdir, path))
-
-    @classmethod
-    def _get_safe_interval_suggestion_string(cls, computer):
-        return cls._DEFAULT_SAFE_OPEN_INTERVAL
 
 
 CONFIGURE_LOCAL_CMD = transport_cli.create_configure_cmd('local')

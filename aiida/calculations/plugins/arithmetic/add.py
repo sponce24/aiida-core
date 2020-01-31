@@ -8,11 +8,6 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Implementation of CalcJobNode to add two numbers for testing and demonstration purposes."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
-
-import six
 
 from aiida import orm
 from aiida.common.datastructures import CalcInfo, CodeInfo
@@ -24,10 +19,10 @@ class ArithmeticAddCalculation(CalcJob):
 
     @classmethod
     def define(cls, spec):
-        super(ArithmeticAddCalculation, cls).define(spec)
-        spec.input('metadata.options.input_filename', valid_type=six.string_types, default='aiida.in', non_db=True)
-        spec.input('metadata.options.output_filename', valid_type=six.string_types, default='aiida.out', non_db=True)
-        spec.input('metadata.options.parser_name', valid_type=six.string_types, default='arithmetic.add', non_db=True)
+        super().define(spec)
+        spec.inputs['metadata']['options']['parser_name'].default = 'arithmetic.add'
+        spec.inputs['metadata']['options']['input_filename'].default = 'aiida.in'
+        spec.inputs['metadata']['options']['output_filename'].default = 'aiida.out'
         spec.input('x', valid_type=(orm.Int, orm.Float), help='The left operand.')
         spec.input('y', valid_type=(orm.Int, orm.Float), help='The right operand.')
         spec.output('sum', valid_type=(orm.Int, orm.Float), help='The sum of the left and right operand.')
@@ -111,4 +106,4 @@ class ArithmeticAddCalculation(CalcJob):
         :param input_y: the numeric node representing the right operand of the summation
         """
         with folder.open(self.options.input_filename, 'w', encoding='utf8') as handle:
-            handle.write(u'{} {}\n'.format(input_x.value, input_y.value))
+            handle.write('{} {}\n'.format(input_x.value, input_y.value))

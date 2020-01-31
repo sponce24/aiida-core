@@ -8,12 +8,10 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """`verdi database` commands."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 import click
 
+from aiida.common import exceptions
 from aiida.cmdline.commands.cmd_verdi import verdi
 from aiida.cmdline.params import options
 from aiida.cmdline.utils import decorators, echo
@@ -41,7 +39,10 @@ def database_migrate(force):
     backend = manager._load_backend(schema_check=False)  # pylint: disable=protected-access
 
     if force:
-        backend.migrate()
+        try:
+            backend.migrate()
+        except exceptions.ConfigurationError as exception:
+            echo.echo_critical(str(exception))
         return
 
     echo.echo_warning('Migrating your database might take a while and is not reversible.')
@@ -67,8 +68,12 @@ def database_migrate(force):
         echo.echo('\n')
         echo.echo_critical('Migration aborted, the data has not been affected.')
     else:
-        backend.migrate()
-        echo.echo_success('migration completed')
+        try:
+            backend.migrate()
+        except exceptions.ConfigurationError as exception:
+            echo.echo_critical(str(exception))
+        else:
+            echo.echo_success('migration completed')
 
 
 @verdi_database.group('integrity')

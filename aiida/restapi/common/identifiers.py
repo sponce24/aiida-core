@@ -31,12 +31,8 @@ Examples of invalid full types:
     'process.calculation%.calcfunction.%|aiida.calculations:arithmetic.add'  # More than one operator in segment
 
 """
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 import collections
-import six
 
 from aiida.common.escaping import escape_for_sql_like
 
@@ -54,7 +50,7 @@ def validate_full_type(full_type):
     """
     from aiida.common.lang import type_check
 
-    type_check(full_type, six.string_types)
+    type_check(full_type, str)
 
     if FULL_TYPE_CONCATENATOR not in full_type:
         raise ValueError(
@@ -189,12 +185,12 @@ class Namespace(collections.MutableMapping):
     # plugins. The `node_type` in that case is fixed and the `process_type` should start with the entry point group
     # followed by the plugin name and the wildcard.
     process_full_type_mapping = {
-        'process.calculation.calcjob.': 'process.calculation.calcjob.CalcJobNode|aiida.calculations:{plugin_name}.%',
+        'process.calculation.calcjob.': 'process.calculation.calcjob.CalcJobNode.|aiida.calculations:{plugin_name}.%',
         'process.calculation.calcfunction.':
-        'process.calculation.calcfunction.CalcFunctionNode|aiida.calculations:{plugin_name}.%',
+        'process.calculation.calcfunction.CalcFunctionNode.|aiida.calculations:{plugin_name}.%',
         'process.workflow.workfunction.':
-        'process.workflow.workfunction.WorkFunctionNode|aiida.workflows:{plugin_name}.%',
-        'process.workflow.workchain.': 'process.workflow.workchain.WorkChainNode|aiida.workflows:{plugin_name}.%',
+        'process.workflow.workfunction.WorkFunctionNode.|aiida.workflows:{plugin_name}.%',
+        'process.workflow.workchain.': 'process.workflow.workchain.WorkChainNode.|aiida.workflows:{plugin_name}.%',
     }
 
     def __str__(self):
@@ -294,7 +290,7 @@ class Namespace(collections.MutableMapping):
         :returns: Namespace
         :raises: ValueError if any sub namespace is occupied by a non-Namespace port
         """
-        if not isinstance(name, six.string_types):
+        if not isinstance(name, str):
             raise ValueError('name has to be a string type, not {}'.format(type(name)))
 
         if not name:

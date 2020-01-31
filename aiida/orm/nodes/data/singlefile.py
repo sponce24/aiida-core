@@ -8,14 +8,12 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Data class that can be used to store a single file in its repository."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
-
+import inspect
 import os
-import six
+import warnings
 
 from aiida.common import exceptions
+from aiida.common.warnings import AiidaDeprecationWarning
 from .data import Data
 
 __all__ = ('SinglefileData',)
@@ -26,15 +24,29 @@ class SinglefileData(Data):
 
     DEFAULT_FILENAME = 'file.txt'
 
-    def __init__(self, file, **kwargs):
+    def __init__(self, file, filename=None, **kwargs):
         """Construct a new instance and set the contents to that of the file.
 
-        :param file: an absolute filepath or filelike object whose contents to copy
+        :param file: an absolute filepath or filelike object whose contents to copy.
+            Hint: Pass io.BytesIO(b"my string") to construct the SinglefileData directly from a string.
+        :param filename: specify filename to use (defaults to name of provided file).
         """
         # pylint: disable=redefined-builtin
-        super(SinglefileData, self).__init__(**kwargs)
+        super().__init__(**kwargs)
+
+        # 'filename' argument was added to 'set_file' after 1.0.0.
+        if 'filename' not in inspect.getfullargspec(self.set_file)[0]:
+            warnings.warn(  # pylint: disable=no-member
+                "Method '{}.set_file' does not support the 'filename' argument. ".format(type(self).__name__) +
+                'This will raise an exception in AiiDA 2.0.', AiidaDeprecationWarning
+            )
+
         if file is not None:
-            self.set_file(file)
+            if filename is None:
+                # don't assume that set_file has a 'filename' argument (remove guard in 2.0.0)
+                self.set_file(file)
+            else:
+                self.set_file(file, filename=filename)
 
     @property
     def filename(self):
@@ -64,15 +76,16 @@ class SinglefileData(Data):
         with self.open() as handle:
             return handle.read()
 
-    def set_file(self, file):
+    def set_file(self, file, filename=None):
         """Store the content of the file in the node's repository, deleting any other existing objects.
 
         :param file: an absolute filepath or filelike object whose contents to copy
-            Hint: Pass io.StringIO("my string") to construct the file directly from a string.
+            Hint: Pass io.BytesIO(b"my string") to construct the file directly from a string.
+        :param filename: specify filename to use (defaults to name of provided file).
         """
         # pylint: disable=redefined-builtin
 
-        if isinstance(file, six.string_types):
+        if isinstance(file, str):
             is_filelike = False
 
             key = os.path.basename(file)
@@ -87,6 +100,8 @@ class SinglefileData(Data):
                 key = os.path.basename(file.name)
             except AttributeError:
                 key = self.DEFAULT_FILENAME
+
+        key = filename or key
 
         existing_object_names = self.list_object_names()
 
@@ -109,7 +124,7 @@ class SinglefileData(Data):
 
     def _validate(self):
         """Ensure that there is one object stored in the repository, whose key matches value set for `filename` attr."""
-        super(SinglefileData, self)._validate()
+        super()._validate()
 
         try:
             filename = self.filename

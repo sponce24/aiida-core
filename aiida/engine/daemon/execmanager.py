@@ -13,19 +13,13 @@ results. These are general and contain only the main logic; where appropriate,
 the routines make reference to the suitable plugins for all
 plugin-specific operations.
 """
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
-
 import os
-
-from six.moves import zip
 
 from aiida.common import AIIDA_LOGGER, exceptions
 from aiida.common.datastructures import CalcJobState
 from aiida.common.folders import SandboxFolder
 from aiida.common.links import LinkType
-from aiida.orm import FolderData
+from aiida.orm import FolderData, Node
 from aiida.orm.utils.log import get_dblogger_extra
 from aiida.plugins import DataFactory
 from aiida.schedulers.datastructures import JobState
@@ -35,14 +29,13 @@ REMOTE_WORK_DIRECTORY_LOST_FOUND = 'lost+found'
 execlogger = AIIDA_LOGGER.getChild('execmanager')
 
 
-def upload_calculation(node, transport, calc_info, script_filename, dry_run=False):
+def upload_calculation(node, transport, calc_info, folder, inputs=None, dry_run=False):
     """Upload a `CalcJob` instance
 
     :param node: the `CalcJobNode`.
     :param transport: an already opened transport to use to submit the calculation.
-    :param calc_info: the calculation info datastructure returned by `CalcJobNode.presubmit`
-    :param script_filename: the job launch script returned by `CalcJobNode.presubmit`
-    :return: tuple of ``calc_info`` and ``script_filename``
+    :param calc_info: the calculation info datastructure returned by `CalcJob.presubmit`
+    :param folder: temporary local file system folder containing the inputs written by `CalcJob.prepare_for_submission`
     """
     from logging import LoggerAdapter
     from tempfile import NamedTemporaryFile
@@ -54,7 +47,7 @@ def upload_calculation(node, transport, calc_info, script_filename, dry_run=Fals
     link_label = 'remote_folder'
     if node.get_outgoing(RemoteData, link_label_filter=link_label).first():
         execlogger.warning('CalcJobNode<{}> already has a `{}` output: skipping upload'.format(node.pk, link_label))
-        return calc_info, script_filename
+        return calc_info
 
     computer = node.computer
 
@@ -69,7 +62,8 @@ def upload_calculation(node, transport, calc_info, script_filename, dry_run=Fals
         raise ValueError('Cannot submit calculation {} because it has cached input links! If you just want to test the '
                          'submission, set `metadata.dry_run` to True in the inputs.'.format(node.pk))
 
-    folder = node._raw_input_folder
+    # After this call, no modifications to the folder should be done
+    node.put_object_from_tree(folder.abspath, force=True)
 
     # If we are performing a dry-run, the working directory should actually be a local folder that should already exist
     if dry_run:
@@ -145,8 +139,14 @@ def upload_calculation(node, transport, calc_info, script_filename, dry_run=Fals
     for code in input_codes:
         if code.is_local():
             # Note: this will possibly overwrite files
-            for f in code.get_folder_list():
-                transport.put(code.get_abs_path(f), f)
+            for f in code.list_object_names():
+                # Note, once #2579 is implemented, use the `node.open` method instead of the named temporary file in
+                # combination with the new `Transport.put_object_from_filelike`
+                # Since the content of the node could potentially be binary, we read the raw bytes and pass them on
+                with NamedTemporaryFile(mode='wb+') as handle:
+                    handle.write(code.get_object_content(f, mode='rb'))
+                    handle.flush()
+                    transport.put(handle.name, f)
             transport.chmod(code.get_local_executable(), 0o755)  # rwxr-xr-x
 
     # In a dry_run, the working directory is the raw input folder, which will already contain these resources
@@ -162,21 +162,43 @@ def upload_calculation(node, transport, calc_info, script_filename, dry_run=Fals
     remote_symlink_list = calc_info.remote_symlink_list or []
 
     for uuid, filename, target in local_copy_list:
-        logger.debug('[submission of calculation {}] copying local file/folder to {}'.format(node.pk, target))
+        logger.debug('[submission of calculation {}] copying local file/folder to {}'.format(node.uuid, target))
+
+        def find_data_node(inputs, uuid):
+            """Find and return the node with the given UUID from a nested mapping of input nodes.
+
+            :param inputs: (nested) mapping of nodes
+            :param uuid: UUID of the node to find
+            :return: instance of `Node` or `None` if not found
+            """
+            from collections import Mapping
+            data_node = None
+
+            for link_label, input_node in inputs.items():
+                if isinstance(input_node, Mapping):
+                    data_node = find_data_node(input_node, uuid)
+                elif isinstance(input_node, Node) and input_node.uuid == uuid:
+                    data_node = input_node
+                if data_node is not None:
+                    break
+
+            return data_node
 
         try:
             data_node = load_node(uuid=uuid)
         except exceptions.NotExistent:
-            logger.warning('failed to load Node<{}> specified in the `local_copy_list`'.format(uuid))
+            data_node = find_data_node(inputs, uuid)
 
-        # Note, once #2579 is implemented, use the `node.open` method instead of the named temporary file in
-        # combination with the new `Transport.put_object_from_filelike`
-        # Since the content of the node could potentially be binary, we read the raw bytes and pass them on
-        with NamedTemporaryFile(mode='wb+') as handle:
-            handle.write(data_node.get_object_content(filename, mode='rb'))
-            handle.flush()
-            handle.seek(0)
-            transport.put(handle.name, target)
+        if data_node is None:
+            logger.warning('failed to load Node<{}> specified in the `local_copy_list`'.format(uuid))
+        else:
+            # Note, once #2579 is implemented, use the `node.open` method instead of the named temporary file in
+            # combination with the new `Transport.put_object_from_filelike`
+            # Since the content of the node could potentially be binary, we read the raw bytes and pass them on
+            with NamedTemporaryFile(mode='wb+') as handle:
+                handle.write(data_node.get_object_content(filename, mode='rb'))
+                handle.flush()
+                transport.put(handle.name, target)
 
     if dry_run:
         if remote_copy_list:
@@ -231,8 +253,6 @@ def upload_calculation(node, transport, calc_info, script_filename, dry_run=Fals
         remotedata = RemoteData(computer=computer, remote_path=workdir)
         remotedata.add_incoming(node, link_type=LinkType.CREATE, link_label='remote_folder')
         remotedata.store()
-
-    return calc_info, script_filename
 
 
 def submit_calculation(calculation, transport, calc_info, script_filename):

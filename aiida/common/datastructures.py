@@ -8,9 +8,6 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Module to define commonly used data structures."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 from enum import Enum, IntEnum
 
@@ -172,7 +169,7 @@ class CodeRunMode(IntEnum):
     PARALLEL = 1
 
 
-class LazyStore(object):
+class LazyStore:
     """
     A container that provides a mapping to objects based on a key, if the object is not
     found in the container when it is retrieved it will created using a provided factory

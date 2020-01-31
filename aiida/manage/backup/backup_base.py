@@ -8,27 +8,19 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Base abstract Backup class for all backends."""
-from __future__ import print_function
-from __future__ import absolute_import
-from __future__ import division
-
-import io
 import datetime
-import shutil
 import os
 import logging
+import shutil
 
-from abc import abstractmethod, ABCMeta
-import six
+from abc import ABC, abstractmethod
 from dateutil.parser import parse
-from pytz import timezone as ptimezone
 
 from aiida.common import json
 from aiida.common import timezone as dtimezone
 
 
-@six.add_metaclass(ABCMeta)  # pylint: disable=useless-object-inheritance
-class AbstractBackup(object):
+class AbstractBackup(ABC):
     """
     This class handles the backup of the AiiDA repository that is referenced
     by the current AiiDA database. The backup will start from the
@@ -95,7 +87,7 @@ class AbstractBackup(object):
         """
         backup_variables = None
 
-        with io.open(backup_info_file_name, 'r', encoding='utf8') as backup_info_file:
+        with open(backup_info_file_name, 'r', encoding='utf8') as backup_info_file:
             try:
                 backup_variables = json.load(backup_info_file)
             except ValueError:
@@ -136,11 +128,11 @@ class AbstractBackup(object):
             try:
                 self._oldest_object_bk = parse(backup_variables.get(self.OLDEST_OBJECT_BK_KEY))
                 if self._oldest_object_bk.tzinfo is None:
-                    curr_timezone = str(dtimezone.get_current_timezone())
-                    self._oldest_object_bk = ptimezone(curr_timezone).localize(self._oldest_object_bk)
+                    curr_timezone = dtimezone.get_current_timezone()
+                    self._oldest_object_bk = dtimezone.get_current_timezone().localize(self._oldest_object_bk)
                     self._logger.info(
                         'No timezone defined in the oldest modification date timestamp. Setting current timezone (%s).',
-                        curr_timezone
+                        curr_timezone.zone
                     )
             # If it is not parsable...
             except ValueError:
@@ -168,13 +160,13 @@ class AbstractBackup(object):
                 self._end_date_of_backup = parse(backup_variables.get(self.END_DATE_OF_BACKUP_KEY))
 
                 if self._end_date_of_backup.tzinfo is None:
-                    curr_timezone = str(dtimezone.get_current_timezone())
+                    curr_timezone = dtimezone.get_current_timezone()
                     self._end_date_of_backup = \
-                        ptimezone(curr_timezone).localize(
+                        curr_timezone.localize(
                             self._end_date_of_backup)
                     self._logger.info(
                         'No timezone defined in the end date of backup timestamp. Setting current timezone (%s).',
-                        curr_timezone
+                        curr_timezone.zone
                     )
 
                 self._internal_end_date_of_backup = self._end_date_of_backup
@@ -230,7 +222,7 @@ class AbstractBackup(object):
         given filename.
         """
         backup_variables = self._dictionarize_backup_info()
-        with io.open(backup_info_file_name, 'wb') as backup_info_file:
+        with open(backup_info_file_name, 'wb') as backup_info_file:
             json.dump(backup_variables, backup_info_file)
 
     def _find_files_to_backup(self):
@@ -424,7 +416,7 @@ class BackupError(Exception):
     """General backup error"""
 
     def __init__(self, value, *args, **kwargs):
-        super(BackupError, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._value = value
 
     def __str__(self):

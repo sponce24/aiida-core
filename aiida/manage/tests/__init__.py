@@ -11,9 +11,6 @@
 Testing infrastructure for easy testing of AiiDA plugins.
 
 """
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
 import tempfile
 import shutil
 import os
@@ -49,14 +46,14 @@ class TestManagerError(Exception):
     """Raised by TestManager in situations that may lead to inconsistent behaviour."""
 
     def __init__(self, msg):
-        super(TestManagerError, self).__init__()
+        super().__init__()
         self.msg = msg
 
     def __str__(self):
         return repr(self.msg)
 
 
-class TestManager(object):
+class TestManager:
     """
     Test manager for plugin tests.
 
@@ -76,14 +73,18 @@ class TestManager(object):
          Uses :py:class:`aiida.manage.tests.TemporaryProfileManager` internally.
 
         :param backend: Backend to use.
-        :param pgtest: parameters for pgtest.pgtest.PGTest
+        :param pgtest: a dictionary of arguments to be passed to PGTest() for starting the postgresql cluster,
+           e.g. {'pg_ctl': '/somepath/pg_ctl'}. Should usually not be necessary.
+
         """
         if configuration.PROFILE is not None:
             raise TestManagerError('AiiDA dbenv must not be loaded before setting up a test profile.')
         if self._manager is not None:
             raise TestManagerError('Profile manager already loaded.')
-        self._manager = TemporaryProfileManager(backend=backend)
-        self._manager.create_profile(pgtest=pgtest)
+
+        mngr = TemporaryProfileManager(backend=backend, pgtest=pgtest)
+        mngr.create_profile()
+        self._manager = mngr  # don't assign before profile has actually been created!
 
     def use_profile(self, profile_name):
         """Set up Test manager to use existing profile.
@@ -109,10 +110,10 @@ class TestManager(object):
     def destroy_all(self):
         if self._manager:
             self._manager.destroy_all()
-        #self._manager = None
+        self._manager = None
 
 
-class ProfileManager(object):
+class ProfileManager:
     """
     Wraps existing AiiDA profile.
     """
@@ -146,7 +147,7 @@ class ProfileManager(object):
             from aiida.backends.djsite.db.testbase import DjangoTests
             self._test_case = DjangoTests()
         elif backend == BACKEND_SQLA:
-            from aiida.backends.sqlalchemy.tests.testbase import SqlAlchemyTests
+            from aiida.backends.sqlalchemy.testbase import SqlAlchemyTests
             from aiida.backends.sqlalchemy import get_scoped_session
 
             self._test_case = SqlAlchemyTests()
@@ -232,12 +233,20 @@ class TemporaryProfileManager(ProfileManager):
 
     _test_case = None
 
-    def __init__(self, backend=BACKEND_DJANGO):  # pylint: disable=super-init-not-called
+    def __init__(self, backend=BACKEND_DJANGO, pgtest=None):  # pylint: disable=super-init-not-called
+        """Construct a TemporaryProfileManager
+
+        :param backend: a database backend
+        :param pgtest: a dictionary of arguments to be passed to PGTest() for starting the postgresql cluster,
+           e.g. {'pg_ctl': '/somepath/pg_ctl'}. Should usually not be necessary.
+
+        """
         from aiida.manage.configuration import settings
 
         self.dbinfo = {}
         self.profile_info = _DEFAULT_PROFILE_INFO
         self.profile_info['database_backend'] = backend
+        self._pgtest = pgtest or {}
 
         self.pg_cluster = None
         self.postgres = None
@@ -266,11 +275,9 @@ class TemporaryProfileManager(ProfileManager):
         }
         return dictionary
 
-    def create_db_cluster(self, pgtest=None):
+    def create_db_cluster(self):
         """
         Create the database cluster using PGTest.
-
-        :param pgtest: a dictionary containing input to PGTest()
         """
         from pgtest.pgtest import PGTest
 
@@ -278,40 +285,33 @@ class TemporaryProfileManager(ProfileManager):
             raise TestManagerError(
                 'Running temporary postgresql cluster detected.' + 'Use destroy_all() before creating a new cluster.'
             )
-        if pgtest is None:
-            pgtest = {}
-        self.pg_cluster = PGTest(**pgtest)
+        self.pg_cluster = PGTest(**self._pgtest)
         self.dbinfo.update(self.pg_cluster.dsn)
 
-    def create_aiida_db(self, pgtest=None):
+    def create_aiida_db(self):
         """
         Create the necessary database on the temporary postgres instance.
-
-        By utilizing pgtest it is possible to forward initialization arguments to PGTest().
-
-        :param pgtest: a dictionary containing input to PGTest()
         """
         if configuration.PROFILE is not None:
             raise TestManagerError('AiiDA dbenv can not be loaded while creating a tests db environment')
         if self.pg_cluster is None:
-            self.create_db_cluster(pgtest)
+            self.create_db_cluster()
         self.postgres = Postgres(interactive=False, quiet=True, dbinfo=self.dbinfo)
         self.dbinfo = self.postgres.dbinfo.copy()
         self.postgres.create_dbuser(self.profile_info['database_username'], self.profile_info['database_password'])
         self.postgres.create_db(self.profile_info['database_username'], self.profile_info['database_name'])
         self._has_test_db = True
 
-    def create_profile(self, pgtest=None):
+    def create_profile(self):
         """
         Set AiiDA to use the tests config dir and create a default profile there
 
         Warning: the AiiDA dbenv must not be loaded when this is called!
-        :param pgtest: a dictionary containing input to PGTest()
         """
         from aiida.manage.configuration import settings, load_profile, Profile
 
         if not self._has_test_db:
-            self.create_aiida_db(pgtest)
+            self.create_aiida_db()
 
         if not self.root_dir:
             self.root_dir = tempfile.mkdtemp()
@@ -449,18 +449,33 @@ def test_manager(backend=BACKEND_DJANGO, profile_name=None, pgtest=None):
 
 
 def get_test_backend_name():
-    """ Read name of database backend from environment variable.
+    """ Read name of database backend from environment variable or the specified test profile.
 
-    Reads database backend ('django' or 'sqlalchemy') from 'AIIDA_TEST_BACKEND' environment variable.
+    Reads database backend ('django' or 'sqlalchemy') from 'AIIDA_TEST_BACKEND' environment variable,
+    or the backend configured for the 'AIIDA_TEST_PROFILE'.
     Defaults to django backend.
 
     :returns: content of environment variable or `BACKEND_DJANGO`
     :raises: ValueError if unknown backend name detected.
+    :raises: ValueError if both 'AIIDA_TEST_BACKEND' and 'AIIDA_TEST_PROFILE' are set, and the two
+        backends do not match.
     """
-    backend_env = os.environ.get('AIIDA_TEST_BACKEND', BACKEND_DJANGO)
-    if backend_env in (BACKEND_DJANGO, BACKEND_SQLA):
-        return backend_env
-    raise ValueError("Unknown backend '{}' read from AIIDA_TEST_BACKEND environment variable".format(backend_env))
+    test_profile_name = get_test_profile_name()
+    backend_env = os.environ.get('AIIDA_TEST_BACKEND', None)
+    if test_profile_name is not None:
+        backend_profile = configuration.get_config().get_profile(test_profile_name).database_backend
+        if backend_env is not None and backend_env != backend_profile:
+            raise ValueError(
+                "The backend '{}' read from AIIDA_TEST_BACKEND does not match the backend '{}' "
+                "of AIIDA_TEST_PROFILE '{}'".format(backend_env, backend_profile, test_profile_name)
+            )
+        backend_res = backend_profile
+    else:
+        backend_res = backend_env or BACKEND_DJANGO
+
+    if backend_res in (BACKEND_DJANGO, BACKEND_SQLA):
+        return backend_res
+    raise ValueError("Unknown backend '{}' read from AIIDA_TEST_BACKEND environment variable".format(backend_res))
 
 
 def get_test_profile_name():

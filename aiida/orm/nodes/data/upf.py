@@ -8,14 +8,9 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Module of `Data` sub class to represent a pseudopotential single file in UPF format and related utilities."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
-import io
 import json
 import re
-import six
 
 from upf_to_json import upf_to_json
 
@@ -214,7 +209,7 @@ def parse_upf(fname, check_filename=True):
         upf_contents = fname.read()
         fname = fname.name
     except AttributeError:
-        with io.open(fname, encoding='utf8') as handle:
+        with open(fname, encoding='utf8') as handle:
             upf_contents = handle.read()
 
     match = REGEX_UPF_VERSION.search(upf_contents)
@@ -268,9 +263,16 @@ def parse_upf(fname, check_filename=True):
 class UpfData(SinglefileData):
     """`Data` sub class to represent a pseudopotential single file in UPF format."""
 
-    def __init__(self, file=None, source=None, **kwargs):
+    def __init__(self, file=None, filename=None, source=None, **kwargs):
+        """Create UpfData instance from pseudopotential file.
+
+          :param file: filepath or filelike object of the UPF potential file to store.
+            Hint: Pass io.BytesIO(b"my string") to construct directly from a string.
+          :param filename: specify filename to use (defaults to name of provided file).
+          :param source: Dictionary with information on source of the potential (see ".source" property).
+          """
         # pylint: disable=redefined-builtin
-        super(UpfData, self).__init__(file, **kwargs)
+        super().__init__(file, filename=filename, **kwargs)
         if source is not None:
             self.set_source(source)
 
@@ -340,7 +342,7 @@ class UpfData(SinglefileData):
         self.set_attribute('element', str(element))
         self.set_attribute('md5', md5)
 
-        return super(UpfData, self).store(*args, **kwargs)
+        return super().store(*args, **kwargs)
 
     @classmethod
     def from_md5(cls, md5):
@@ -356,10 +358,12 @@ class UpfData(SinglefileData):
         builder.append(cls, filters={'attributes.md5': {'==': md5}})
         return [upf for upf, in builder.all()]
 
-    def set_file(self, file):
+    def set_file(self, file, filename=None):
         """Store the file in the repository and parse it to set the `element` and `md5` attributes.
 
         :param file: filepath or filelike object of the UPF potential file to store.
+            Hint: Pass io.BytesIO(b"my string") to construct the file directly from a string.
+        :param filename: specify filename to use (defaults to name of provided file).
         """
         # pylint: disable=redefined-builtin
         from aiida.common.exceptions import ParsingError
@@ -377,7 +381,7 @@ class UpfData(SinglefileData):
         except KeyError:
             raise ParsingError("No 'element' parsed in the UPF file {}; unable to store".format(self.filename))
 
-        super(UpfData, self).set_file(file)
+        super().set_file(file, filename=filename)
 
         self.set_attribute('element', str(element))
         self.set_attribute('md5', md5sum)
@@ -413,7 +417,7 @@ class UpfData(SinglefileData):
         from aiida.common.exceptions import ValidationError
         from aiida.common.files import md5_from_filelike
 
-        super(UpfData, self)._validate()
+        super()._validate()
 
         with self.open(mode='r') as handle:
             parsed_data = parse_upf(handle)
@@ -486,7 +490,7 @@ class UpfData(SinglefileData):
         if user:
             builder.append(User, filters={'email': {'==': user}}, with_group='group')
 
-        if isinstance(filter_elements, six.string_types):
+        if isinstance(filter_elements, str):
             filter_elements = [filter_elements]
 
         if filter_elements is not None:

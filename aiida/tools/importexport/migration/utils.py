@@ -8,18 +8,14 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Utility functions for migration of export-files."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 from aiida.tools.importexport.common import exceptions
 
 
 def verify_metadata_version(metadata, version=None):
-    """
-    Utility function to verify that the metadata has the correct version number.
-    If no version number is passed, it will just extract the version number
-    and return it.
+    """Utility function to verify that the metadata has the correct version number.
+
+    If no version number is passed, it will just extract the version number and return it.
 
     :param metadata: the content of an export archive metadata.json file
     :param version: string version number that the metadata is expected to have
@@ -41,9 +37,7 @@ def verify_metadata_version(metadata, version=None):
 
 
 def update_metadata(metadata, version):
-    """
-    Update the metadata with a new version number and a notification of the
-    conversion that was executed
+    """Update the metadata with a new version number and a notification of the conversion that was executed.
 
     :param metadata: the content of an export archive metadata.json file
     :param version: string version number that the updated metadata should get
@@ -62,8 +56,7 @@ def update_metadata(metadata, version):
 
 
 def remove_fields(metadata, data, entities, fields):
-    """
-    Remove fields under entities from data.json and metadata.json
+    """Remove fields under entities from data.json and metadata.json.
 
     :param metadata: the content of an export archive metadata.json file
     :param data: the content of an export archive data.json file

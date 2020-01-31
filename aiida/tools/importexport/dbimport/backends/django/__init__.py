@@ -9,17 +9,12 @@
 ###########################################################################
 # pylint: disable=protected-access,fixme,inconsistent-return-statements,too-many-arguments,too-many-locals,too-many-statements,too-many-branches
 """ Django-specific import of AiiDA entities """
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import print_function
 
 from distutils.version import StrictVersion
-import io
 import os
 import tarfile
 import zipfile
 from itertools import chain
-import six
 
 from aiida.common import timezone, json
 from aiida.common.folders import SandboxFolder, RepositoryFolder
@@ -143,10 +138,10 @@ def import_data_dj(
         if not folder.get_content_list():
             raise exceptions.CorruptArchive('The provided file/folder ({}) is empty'.format(in_path))
         try:
-            with io.open(folder.get_abs_path('metadata.json'), 'r', encoding='utf8') as fhandle:
+            with open(folder.get_abs_path('metadata.json'), 'r', encoding='utf8') as fhandle:
                 metadata = json.load(fhandle)
 
-            with io.open(folder.get_abs_path('data.json'), 'r', encoding='utf8') as fhandle:
+            with open(folder.get_abs_path('data.json'), 'r', encoding='utf8') as fhandle:
                 data = json.load(fhandle)
         except IOError as error:
             raise exceptions.CorruptArchive(
@@ -171,7 +166,7 @@ def import_data_dj(
         # CREATE UUID REVERSE TABLES AND CHECK IF I HAVE ALL NODES FOR THE LINKS #
         ##########################################################################
         linked_nodes = set(chain.from_iterable((l['input'], l['output']) for l in data['links_uuid']))
-        group_nodes = set(chain.from_iterable(six.itervalues(data['groups_uuid'])))
+        group_nodes = set(chain.from_iterable(data['groups_uuid'].values()))
 
         if NODE_ENTITY_NAME in data['export_data']:
             import_nodes_uuid = set(v['uuid'] for v in data['export_data'][NODE_ENTITY_NAME].values())
@@ -535,13 +530,10 @@ def import_data_dj(
                 except KeyError:
                     if ignore_unknown_nodes:
                         continue
-                    else:
-                        raise exceptions.ImportValidationError(
-                            'Trying to create a link with one or both unknown nodes, stopping (in_uuid={}, '
-                            'out_uuid={}, label={}, type={})'.format(
-                                link['input'], link['output'], link['label'], link['type']
-                            )
-                        )
+                    raise exceptions.ImportValidationError(
+                        'Trying to create a link with one or both unknown nodes, stopping (in_uuid={}, out_uuid={}, '
+                        'label={}, type={})'.format(link['input'], link['output'], link['label'], link['type'])
+                    )
 
                 # Check if link already exists, skip if it does
                 # This is equivalent to an existing triple link (i.e. unique_triple from below)
@@ -652,9 +644,9 @@ def import_data_dj(
         # Put everything in a specific group
         ######################################################
         existing = existing_entries.get(NODE_ENTITY_NAME, {})
-        existing_pk = [foreign_ids_reverse_mappings[NODE_ENTITY_NAME][v['uuid']] for v in six.itervalues(existing)]
+        existing_pk = [foreign_ids_reverse_mappings[NODE_ENTITY_NAME][v['uuid']] for v in existing.values()]
         new = new_entries.get(NODE_ENTITY_NAME, {})
-        new_pk = [foreign_ids_reverse_mappings[NODE_ENTITY_NAME][v['uuid']] for v in six.itervalues(new)]
+        new_pk = [foreign_ids_reverse_mappings[NODE_ENTITY_NAME][v['uuid']] for v in new.values()]
 
         pks_for_group = existing_pk + new_pk
 
@@ -690,8 +682,6 @@ def import_data_dj(
                 print('NO NODES TO IMPORT, SO NO GROUP CREATED, IF IT DID NOT ALREADY EXIST')
 
     if not silent:
-        print('*** WARNING: MISSING EXISTING UUID CHECKS!!')
-        print('*** WARNING: TODO: UPDATE IMPORT_DATA WITH DEFAULT VALUES! (e.g. calc status, user pwd, ...)')
         print('DONE.')
 
     return ret_dict

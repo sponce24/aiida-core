@@ -9,14 +9,10 @@
 ###########################################################################
 # pylint: disable=invalid-name
 """Utilities for the workflow engine."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 import contextlib
 import logging
 
-from six.moves import range
 import tornado.ioloop
 from tornado import concurrent, gen
 
@@ -242,9 +238,9 @@ def set_process_state_change_timestamp(process):
 
     :param process: the Process instance that changed its state
     """
-    from aiida.backends.utils import get_settings_manager
     from aiida.common import timezone
     from aiida.common.exceptions import UniquenessError
+    from aiida.manage.manager import get_manager  # pylint: disable=cyclic-import
     from aiida.orm import ProcessNode, CalculationNode, WorkflowNode
 
     if isinstance(process.node, CalculationNode):
@@ -262,8 +258,8 @@ def set_process_state_change_timestamp(process):
     value = timezone.datetime_to_isoformat(timezone.now())
 
     try:
-        manager = get_settings_manager()
-        manager.set(key, value, description)
+        manager = get_manager()
+        manager.get_backend_manager().get_settings_manager().set(key, value, description)
     except UniquenessError as exception:
         process.logger.debug('could not update the {} setting because of a UniquenessError: {}'.format(key, exception))
 
@@ -278,11 +274,11 @@ def get_process_state_change_timestamp(process_type=None):
         known process types will be returned.
     :return: a timestamp or None
     """
-    from aiida.backends.utils import get_settings_manager
     from aiida.common import timezone
     from aiida.common.exceptions import NotExistent
+    from aiida.manage.manager import get_manager  # pylint: disable=cyclic-import
 
-    manager = get_settings_manager()
+    manager = get_manager().get_backend_manager().get_settings_manager()
     valid_process_types = ['calculation', 'work']
 
     if process_type is not None and process_type not in valid_process_types:
@@ -298,7 +294,9 @@ def get_process_state_change_timestamp(process_type=None):
     for process_type_key in process_types:
         key = PROCESS_STATE_CHANGE_KEY.format(process_type_key)
         try:
-            timestamps.append(timezone.isoformat_to_datetime(manager.get(key).value))
+            time_stamp = timezone.isoformat_to_datetime(manager.get(key).value)
+            if time_stamp is not None:
+                timestamps.append(time_stamp)
         except NotExistent:
             continue
 

@@ -8,9 +8,6 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """Common cli utilities for transport plugins."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 import inspect
 from functools import partial
 
@@ -55,9 +52,7 @@ def configure_computer_main(computer, user, **kwargs):
 
 def common_params(command_func):
     """Decorate a command function with common click parameters for all transport plugins."""
-    params = [i for i in TRANSPORT_PARAMS]
-    params.reverse()
-    for param in params:
+    for param in TRANSPORT_PARAMS.copy().reverse():
         command_func = param(command_func)
     return command_func
 
@@ -111,10 +106,14 @@ def create_option(name, spec):
     if spec.pop('switch', False):
         option_name = '--{name}/--no-{name}'.format(name=name_dashed)
     kwargs = {}
-    if 'default' not in spec:
+
+    if 'default' in spec:
+        kwargs['show_default'] = True
+    else:
         kwargs['contextual_default'] = interactive_default(
             'ssh', name, also_noninteractive=spec.pop('non_interactive_default', False)
         )
+
     kwargs['cls'] = InteractiveOption
     kwargs.update(spec)
     if existing_option:

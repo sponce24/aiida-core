@@ -8,9 +8,6 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """`verdi daemon` commands."""
-from __future__ import division
-from __future__ import print_function
-from __future__ import absolute_import
 
 import os
 import subprocess
@@ -294,7 +291,6 @@ def start_circus(foreground, number):
 
     while should_restart:
         try:
-            arbiter = arbiter
             future = arbiter.start()
             should_restart = False
             if check_future_exception_and_log(future) is None:
